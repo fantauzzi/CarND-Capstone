@@ -3,6 +3,7 @@
 import rospy
 from geometry_msgs.msg import PoseStamped
 from styx_msgs.msg import Lane, Waypoint
+import sys
 
 import math
 
@@ -26,7 +27,9 @@ LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this n
 
 class WaypointUpdater(object):
     def __init__(self):
-        rospy.init_node('waypoint_updater')
+        rospy.init_node('waypoint_updater', log_level=rospy.DEBUG)
+        rospy.logdebug('Inside WaypointUpdater.__init__()')
+        rospy.logdebug('Running Python version '+sys.version)
 
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
@@ -37,6 +40,7 @@ class WaypointUpdater(object):
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
+        self.waypoints=[]
 
         rospy.spin()
 
@@ -46,7 +50,11 @@ class WaypointUpdater(object):
 
     def waypoints_cb(self, waypoints):
         # TODO: Implement
-        pass
+        if len(self.waypoints)>0:
+            rospy.logdebug('List of waypoints supposed to be empty but it already contains {} elements'.format(len(self.waypoints)))
+        self.waypoints= waypoints
+        rospy.logdebug('Received these waypoints:')
+        rospy.logdebug(waypoints)
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
