@@ -6,6 +6,7 @@ from styx_msgs.msg import Lane, Waypoint
 import sys
 import tf
 import math
+import threading
 
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
@@ -24,40 +25,45 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
-def unpack_waypoint_position(wp):
-    x = wp.pose.pose.position.x
-    y = wp.pose.pose.position.y
-    z = wp.pose.pose.position.z
+def unpack_pose(pose):
+    x = pose.position.x
+    y = pose.position.y
+    z = pose.position.z
     return x, y, z
 
 
-def wp_distance(wp1, wp2):
-    x1, y1, z1 = unpack_waypoint_position(wp1)
-    x2, y2, z2 = unpack_waypoint_position(wp2)
+def wp_distance(pose1, pose2):
+    x1, y1, z1 = unpack_pose(pose1)
+    x2, y2, z2 = unpack_pose(pose2)
     distance = ((x1+x2)**2+(y1+y2)**2+(z1+z2)**2)**.5
     return distance
+
 
 def get_closest_waypoint_idx(pose, waypoints):
     min_dist = sys.float_info.max
     min_dist_i = None
-    for wp, wp_i in enumerate(waypoints):
-        dist = wp_distance(pose, wp)
+    for wp_i in xrange(len(waypoints)):
+        waypoint_pose=waypoints[wp_i].pose.pose
+        dist = wp_distance(pose, waypoint_pose)
         if dist < min_dist:
             min_dist = dist
             min_dist_i = wp_i
     return min_dist_i
 
-def get_waypoint_bearing(pose, wp):
-    pose_x, pose_y, _ = unpack_waypoint_position(pose)
-    wp_x, wp_y, _ = unpack_waypoint_position(wp)
-    bearing = math.atan2(wp_y-pose_y, wp_x-pose_x)
+
+def get_bearing_from_pose(my_pose, from_pose):
+    my_x, my_y, _ = unpack_pose(my_pose)
+    from_x, from_y, _ = unpack_pose(from_pose)
+    bearing = math.atan2(from_y-my_y, from_x-my_x)
     return bearing
+
 
 def get_next_waypoint_idx(pose, waypoints):
     wp_i = get_closest_waypoint_idx(pose, waypoints)
     assert wp_i >= 0
-    _, _, pose_yaw = tf.transformers.euler_from_quaternion(pose)
-    bearing = get_waypoint_bearing(pose, waypoints[wp_i])
+    quaternion = (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w)
+    _, _, pose_yaw = tf.transformations.euler_from_quaternion(quaternion)
+    bearing = get_bearing_from_pose(pose, waypoints[wp_i].pose.pose)
     if abs(bearing-pose_yaw) < math.pi / 4:  # TODO Should it be math.pi / 2 ?
         wp_i += 1
         if wp_i >= len(waypoints):
@@ -65,13 +71,13 @@ def get_next_waypoint_idx(pose, waypoints):
             assert wp_i == 0
     return wp_i
 
+
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater', log_level=rospy.DEBUG)
         rospy.logdebug('Inside WaypointUpdater.__init__()')
         rospy.logdebug('Running Python version '+sys.version)
 
-        rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
@@ -82,19 +88,35 @@ class WaypointUpdater(object):
         # TODO: Add other member variables you need below
         self.waypoints= None
 
+        self.received_pose_count = 0
+        self.lock = threading.Lock()
+
         rospy.spin()
 
     def pose_cb(self, msg):
         # TODO: Implement
-        pass
+        # rospy.logdebug("Inside pose_cb()")
+        self.lock.acquire();
+        current_count = self.received_pose_count
+        self.received_pose_count += 1
+        self.lock.release();
+        if current_count % 25 != 0:
+            return
+
+        rospy.logdebug('Received pose #{}'.format(current_count))
+        rospy.logdebug(msg)
+        pose_i = get_next_waypoint_idx(msg.pose, self.waypoints)
+        rospy.logdebug('Next waypoint is #{}'.format(pose_i))
+
+
 
     def waypoints_cb(self, waypoints):
         # TODO: Implement
-        if self.waypoints is not None:
-            rospy.logdebug('List of waypoints supposed to be empty but it already contains {} elements'.format(len(self.waypoints)))
-        self.waypoints= waypoints
-        rospy.logdebug('Received these {} waypoints:'.format(len(waypoints.waypoints)))
-        rospy.logdebug(waypoints)
+        assert self.waypoints is None
+        self.waypoints= waypoints.waypoints
+        rospy.logdebug('Received {} waypoints:'.format(len(waypoints.waypoints)))
+        # rospy.logdebug(waypoints)
+        rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
         """
         From waypoint_loader.py:
         
