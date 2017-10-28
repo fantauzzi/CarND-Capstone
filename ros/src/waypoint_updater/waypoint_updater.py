@@ -4,7 +4,7 @@ import rospy
 from geometry_msgs.msg import PoseStamped
 from styx_msgs.msg import Lane, Waypoint
 import sys
-
+import tf
 import math
 
 '''
@@ -24,6 +24,46 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
+def unpack_waypoint_position(wp):
+    x = wp.pose.pose.position.x
+    y = wp.pose.pose.position.y
+    z = wp.pose.pose.position.z
+    return x, y, z
+
+
+def wp_distance(wp1, wp2):
+    x1, y1, z1 = unpack_waypoint_position(wp1)
+    x2, y2, z2 = unpack_waypoint_position(wp2)
+    distance = ((x1+x2)**2+(y1+y2)**2+(z1+z2)**2)**.5
+    return distance
+
+def get_closest_waypoint_idx(pose, waypoints):
+    min_dist = sys.float_info.max
+    min_dist_i = None
+    for wp, wp_i in enumerate(waypoints):
+        dist = wp_distance(pose, wp)
+        if dist < min_dist:
+            min_dist = dist
+            min_dist_i = wp_i
+    return min_dist_i
+
+def get_waypoint_bearing(pose, wp):
+    pose_x, pose_y, _ = unpack_waypoint_position(pose)
+    wp_x, wp_y, _ = unpack_waypoint_position(wp)
+    bearing = math.atan2(wp_y-pose_y, wp_x-pose_x)
+    return bearing
+
+def get_next_waypoint_idx(pose, waypoints):
+    wp_i = get_closest_waypoint_idx(pose, waypoints)
+    assert wp_i >= 0
+    _, _, pose_yaw = tf.transformers.euler_from_quaternion(pose)
+    bearing = get_waypoint_bearing(pose, waypoints[wp_i])
+    if abs(bearing-pose_yaw) < math.pi / 4:  # TODO Should it be math.pi / 2 ?
+        wp_i += 1
+        if wp_i >= len(waypoints):
+            wp_i -= len(waypoints)
+            assert wp_i == 0
+    return wp_i
 
 class WaypointUpdater(object):
     def __init__(self):
@@ -40,7 +80,7 @@ class WaypointUpdater(object):
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
-        self.waypoints=[]
+        self.waypoints= None
 
         rospy.spin()
 
@@ -50,11 +90,23 @@ class WaypointUpdater(object):
 
     def waypoints_cb(self, waypoints):
         # TODO: Implement
-        if len(self.waypoints)>0:
+        if self.waypoints is not None:
             rospy.logdebug('List of waypoints supposed to be empty but it already contains {} elements'.format(len(self.waypoints)))
         self.waypoints= waypoints
-        rospy.logdebug('Received these waypoints:')
+        rospy.logdebug('Received these {} waypoints:'.format(len(waypoints.waypoints)))
         rospy.logdebug(waypoints)
+        """
+        From waypoint_loader.py:
+        
+            for wp in reader:
+                p = Waypoint()
+                p.pose.pose.position.x = float(wp['x'])
+                p.pose.pose.position.y = float(wp['y'])
+                p.pose.pose.position.z = float(wp['z'])
+                q = self.quaternion_from_yaw(float(wp['yaw']))
+                p.pose.pose.orientation = Quaternion(*q)
+                p.twist.twist.linear.x = float(self.velocity)
+        """
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
