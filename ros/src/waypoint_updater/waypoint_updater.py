@@ -32,10 +32,10 @@ def unpack_pose(pose):
     return x, y, z
 
 
-def wp_distance(pose1, pose2):
+def poses_distance(pose1, pose2):
     x1, y1, z1 = unpack_pose(pose1)
     x2, y2, z2 = unpack_pose(pose2)
-    distance = ((x1+x2)**2+(y1+y2)**2+(z1+z2)**2)**.5
+    distance = ((x1-x2)**2+(y1-y2)**2+(z1-z2)**2)**.5
     return distance
 
 
@@ -44,7 +44,7 @@ def get_closest_waypoint_idx(pose, waypoints):
     min_dist_i = None
     for wp_i in xrange(len(waypoints)):
         waypoint_pose=waypoints[wp_i].pose.pose
-        dist = wp_distance(pose, waypoint_pose)
+        dist = poses_distance(pose, waypoint_pose)
         if dist < min_dist:
             min_dist = dist
             min_dist_i = wp_i
@@ -64,11 +64,8 @@ def get_next_waypoint_idx(pose, waypoints):
     quaternion = (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w)
     _, _, pose_yaw = tf.transformations.euler_from_quaternion(quaternion)
     bearing = get_bearing_from_pose(pose, waypoints[wp_i].pose.pose)
-    if abs(bearing-pose_yaw) < math.pi / 4:  # TODO Should it be math.pi / 2 ?
-        wp_i += 1
-        if wp_i >= len(waypoints):
-            wp_i -= len(waypoints)
-            assert wp_i == 0
+    if abs(bearing-pose_yaw) > math.pi / 4:  # TODO Should it be math.pi / 2 ?
+        wp_i = (wp_i + 1) % len(waypoints)
     return wp_i
 
 
@@ -100,14 +97,26 @@ class WaypointUpdater(object):
         current_count = self.received_pose_count
         self.received_pose_count += 1
         self.lock.release();
-        if current_count % 25 != 0:
-            return
+        # if current_count % 25 != 0:
+        #    return
 
         rospy.logdebug('Received pose #{}'.format(current_count))
         rospy.logdebug(msg)
         pose_i = get_next_waypoint_idx(msg.pose, self.waypoints)
         rospy.logdebug('Next waypoint is #{}'.format(pose_i))
-
+        next_i = (pose_i+1) % len(self.waypoints)
+        prev_i = (pose_i-1) % len(self.waypoints)
+        dist_next_i = poses_distance(msg.pose, self.waypoints[next_i].pose.pose)
+        dist_prev_i = poses_distance(msg.pose, self.waypoints[prev_i].pose.pose)
+        direction = 1 if dist_next_i < dist_prev_i else -1
+        lane = Lane()
+        lane.header.frame_id = '/world'
+        lane.header.stamp = rospy.Time(0)
+        # lane.waypoints = self.waypoints[pose_i: pose_i+direction*200: direction]
+        for count in xrange(LOOKAHEAD_WPS):
+            i = (pose_i+count*direction) % len(self.waypoints)
+            lane.waypoints.append(self.waypoints[i])
+        self.final_waypoints_pub.publish(lane)
 
 
     def waypoints_cb(self, waypoints):
@@ -117,32 +126,25 @@ class WaypointUpdater(object):
         rospy.logdebug('Received {} waypoints:'.format(len(waypoints.waypoints)))
         # rospy.logdebug(waypoints)
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
-        """
-        From waypoint_loader.py:
-        
-            for wp in reader:
-                p = Waypoint()
-                p.pose.pose.position.x = float(wp['x'])
-                p.pose.pose.position.y = float(wp['y'])
-                p.pose.pose.position.z = float(wp['z'])
-                q = self.quaternion_from_yaw(float(wp['yaw']))
-                p.pose.pose.orientation = Quaternion(*q)
-                p.twist.twist.linear.x = float(self.velocity)
-        """
+
 
     def traffic_cb(self, msg):
         # TODO: Callback for /traffic_waypoint message. Implement
         pass
 
+
     def obstacle_cb(self, msg):
         # TODO: Callback for /obstacle_waypoint message. We will implement it later
         pass
 
+
     def get_waypoint_velocity(self, waypoint):
         return waypoint.twist.twist.linear.x
 
+
     def set_waypoint_velocity(self, waypoints, waypoint, velocity):
         waypoints[waypoint].twist.twist.linear.x = velocity
+
 
     def distance(self, waypoints, wp1, wp2):
         dist = 0
