@@ -91,7 +91,7 @@ class WaypointUpdater(object):
         rospy.spin()
 
     def pose_cb(self, msg):
-        # TODO: Implement
+        # DONE: Implement
         # rospy.logdebug("Inside pose_cb()")
         self.lock.acquire();
         current_count = self.received_pose_count
@@ -112,7 +112,6 @@ class WaypointUpdater(object):
         lane = Lane()
         lane.header.frame_id = '/world'
         lane.header.stamp = rospy.Time(0)
-        # lane.waypoints = self.waypoints[pose_i: pose_i+direction*200: direction]
         for count in xrange(LOOKAHEAD_WPS):
             i = (pose_i+count*direction) % len(self.waypoints)
             lane.waypoints.append(self.waypoints[i])
@@ -120,7 +119,7 @@ class WaypointUpdater(object):
 
 
     def waypoints_cb(self, waypoints):
-        # TODO: Implement
+        # DONE: Implement
         assert self.waypoints is None
         self.waypoints= waypoints.waypoints
         rospy.logdebug('Received {} waypoints:'.format(len(waypoints.waypoints)))

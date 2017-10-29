@@ -33,7 +33,7 @@ that we have created in the `__init__` function.
 
 class DBWNode(object):
     def __init__(self):
-        rospy.init_node('dbw_node')
+        rospy.init_node('dbw_node', log_level=rospy.DEBUG)
 
         vehicle_mass = rospy.get_param('~vehicle_mass', 1736.35)
         fuel_capacity = rospy.get_param('~fuel_capacity', 13.5)
@@ -57,6 +57,9 @@ class DBWNode(object):
         # self.controller = TwistController(<Arguments you wish to provide>)
 
         # TODO: Subscribe to all the topics you need to
+        rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb)
+        rospy.Subscriber('/current_velocity', TwistStamped, self.current_velocity_cb)
+
 
         self.loop()
 
@@ -92,6 +95,33 @@ class DBWNode(object):
         bcmd.pedal_cmd = brake
         self.brake_pub.publish(bcmd)
 
+    def twist_cb(self, msg):
+        # rospy.logdebug('Received twist message:')
+        # rospy.logdebug(msg)
+        self.publish(1, 0, -8)
+
+    def current_velocity_cb(self, msg):
+        rospy.logdebug('Received current velocity:')
+        rospy.logdebug(msg);
+
 
 if __name__ == '__main__':
     DBWNode()
+
+"""
+-> rosmsg info geometry_msgs/TwistStamped
+std_msgs/Header header
+  uint32 seq
+  time stamp
+  string frame_id
+geometry_msgs/Twist twist
+  geometry_msgs/Vector3 linear
+    float64 x
+    float64 y
+    float64 z
+  geometry_msgs/Vector3 angular
+    float64 x
+    float64 y
+    float64 z
+
+"""
