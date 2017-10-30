@@ -5,6 +5,8 @@ from std_msgs.msg import Bool
 from dbw_mkz_msgs.msg import ThrottleCmd, SteeringCmd, BrakeCmd, SteeringReport
 from geometry_msgs.msg import TwistStamped
 import math
+import threading
+from yaw_controller import YawController
 
 from twist_controller import Controller
 
@@ -31,6 +33,9 @@ that we have created in the `__init__` function.
 
 '''
 
+def rad2deg(deg):
+    return deg/math.pi*180
+
 class DBWNode(object):
     def __init__(self):
         rospy.init_node('dbw_node', log_level=rospy.DEBUG)
@@ -46,6 +51,13 @@ class DBWNode(object):
         max_lat_accel = rospy.get_param('~max_lat_accel', 3.)
         max_steer_angle = rospy.get_param('~max_steer_angle', 8.)
 
+        self.current_linear_velocity = .0
+        self.current_yaw_velocity = .0
+        self.current_velocity_lock = threading.Lock()
+
+        self.dbw_enabled = False  # TODO good for the simulator, but what is the right value for Carla?
+        self.dbw_enabled_lock = threading.Lock()
+
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
                                          SteeringCmd, queue_size=1)
         self.throttle_pub = rospy.Publisher('/vehicle/throttle_cmd',
@@ -56,12 +68,32 @@ class DBWNode(object):
         # TODO: Create `TwistController` object
         # self.controller = TwistController(<Arguments you wish to provide>)
 
+        self.yaw_controller = YawController(wheel_base=wheel_base,
+                                            steer_ratio=steer_ratio,
+                                            min_speed=0,
+                                            max_lat_accel=max_lat_accel,
+                                            max_steer_angle=max_steer_angle)
+
         # TODO: Subscribe to all the topics you need to
         rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb)
         rospy.Subscriber('/current_velocity', TwistStamped, self.current_velocity_cb)
-
+        rospy.Subscriber('/vehicle/dbw_enabled', Bool, self.DBW_enabled_cb)
 
         self.loop()
+
+
+    def set_current_velocity(self, linear, angular):
+        self.current_velocity_lock.acquire()
+        self.current_linear_velocity = linear
+        self.current_yaw_velocity = angular
+        self.current_velocity_lock.release()
+
+
+    def set_dbw_enabled(self, enable):
+        self.dbw_enabled_lock.acquire()
+        self.dbw_enabled = enable
+        self.dbw_enabled_lock.release()
+
 
     def loop(self):
         rate = rospy.Rate(50) # 50Hz
@@ -76,6 +108,7 @@ class DBWNode(object):
             # if <dbw is enabled>:
             #   self.publish(throttle, brake, steer)
             rate.sleep()
+
 
     def publish(self, throttle, brake, steer):
         tcmd = ThrottleCmd()
@@ -95,14 +128,34 @@ class DBWNode(object):
         bcmd.pedal_cmd = brake
         self.brake_pub.publish(bcmd)
 
+
     def twist_cb(self, msg):
         # rospy.logdebug('Received twist message:')
         # rospy.logdebug(msg)
-        self.publish(1, 0, -8)
+        # self.publish(1, 0, -8)
+
+        wanted_velocity = msg.twist.linear.x
+        wanted_angular_velocity = msg.twist.angular.z
+        steering = self.yaw_controller.get_steering(linear_velocity=wanted_velocity,
+                                                    angular_velocity=wanted_angular_velocity,
+                                                    current_velocity=self.current_linear_velocity)
+        steering = rad2deg(steering)
+        self.publish(throttle=.5, brake=0., steer=steering)
+
 
     def current_velocity_cb(self, msg):
-        rospy.logdebug('Received current velocity:')
-        rospy.logdebug(msg);
+        # rospy.logdebug('Received current velocity:')
+        # rospy.logdebug(msg)
+        linear = msg.twist.linear.x
+        angular = msg.twist.angular.z
+        self.set_current_velocity(linear=linear, angular=angular)
+        # rospy.logdebug('Set current velocity to linear={} and angular={}'.format(linear, angular))
+
+
+    def DBW_enabled_cb(self, msg):
+        rospy.logdebug('Received emable DBW')
+        rospy.logdebug(msg)
+        self.set_dbw_enabled(msg.data)
 
 
 if __name__ == '__main__':
