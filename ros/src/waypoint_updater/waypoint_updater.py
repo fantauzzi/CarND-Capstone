@@ -64,7 +64,7 @@ def get_next_waypoint_idx(pose, waypoints):
     quaternion = (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w)
     _, _, pose_yaw = tf.transformations.euler_from_quaternion(quaternion)
     bearing = get_bearing_from_pose(pose, waypoints[wp_i].pose.pose)
-    if abs(bearing-pose_yaw) > math.pi / 4:  # TODO Should it be math.pi / 2 ?
+    if abs(bearing-pose_yaw) > math.pi / 4:  # TODO fishy!
         wp_i = (wp_i + 1) % len(waypoints)
     return wp_i
 
@@ -108,7 +108,7 @@ class WaypointUpdater(object):
         prev_i = (pose_i-1) % len(self.waypoints)
         dist_next_i = poses_distance(msg.pose, self.waypoints[next_i].pose.pose)
         dist_prev_i = poses_distance(msg.pose, self.waypoints[prev_i].pose.pose)
-        direction = 1 if dist_next_i < dist_prev_i else -1
+        direction = -1 if dist_next_i < dist_prev_i else 1
         lane = Lane()
         lane.header.frame_id = '/world'
         lane.header.stamp = rospy.Time(0)
