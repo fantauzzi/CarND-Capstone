@@ -7,10 +7,11 @@ from matplotlib import pyplot as plt
 from threading import Lock
 import copy
 
-"""
-The ROS node charts the track, the current car position and its current path
-"""
+
 class Chart(object):
+    """
+    The ROS node charts the track, the current car position and its current path
+    """
     def __init__(self):
         rospy.init_node('chart', log_level=rospy.DEBUG)
 
@@ -108,7 +109,7 @@ class Chart(object):
                     path_wp_x.append(wp.pose.pose.position.x)
                     path_wp_y.append(wp.pose.pose.position.y)
                     if first_path_iter:
-                        path_line, = self.ax.plot(path_wp_x, path_wp_y, 'y')
+                        path_line, = self.ax.plot(path_wp_x, path_wp_y, 'y', linewidth=3.)
                         first_path_iter = False
                     else:
                         path_line.set_ydata(path_wp_y)

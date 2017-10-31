@@ -7,6 +7,7 @@ import sys
 import tf
 import math
 import threading
+import time
 
 '''
 This node will publish waypoints from the car's current position to some `x` distance ahead.
@@ -25,6 +26,23 @@ TODO (for Yousuf and Aaron): Stopline location for each traffic light.
 
 LOOKAHEAD_WPS = 200 # Number of waypoints we will publish. You can change this number
 
+
+def universal2car_ref(x, y, car_x, car_y, car_yaw):
+    shift_x = x - car_x
+    shift_y = y - car_y
+    x_res = (shift_x * math.cos(-car_yaw) - shift_y * math.sin(-car_yaw))
+    y_res = (shift_x * math.sin(-car_yaw) + shift_y * math.cos(-car_yaw))
+    return x_res, y_res
+
+
+def car2universal_ref(x, y, car_x, car_y, car_yaw):
+    unrotated_x = x * math.cos(car_yaw) - y * math.sin(car_yaw)
+    unrotated_y = x * math.sin(car_yaw) + y * math.cos(car_yaw)
+    x_res = unrotated_x + car_x;
+    y_res = unrotated_y + car_y;
+    return x_res, y_res
+
+
 def unpack_pose(pose):
     x = pose.position.x
     y = pose.position.y
@@ -39,18 +57,6 @@ def poses_distance(pose1, pose2):
     return distance
 
 
-def get_closest_waypoint_idx(pose, waypoints):
-    min_dist = sys.float_info.max
-    min_dist_i = None
-    for wp_i in xrange(len(waypoints)):
-        waypoint_pose=waypoints[wp_i].pose.pose
-        dist = poses_distance(pose, waypoint_pose)
-        if dist < min_dist:
-            min_dist = dist
-            min_dist_i = wp_i
-    return min_dist_i
-
-
 def get_bearing_from_pose(my_pose, from_pose):
     my_x, my_y, _ = unpack_pose(my_pose)
     from_x, from_y, _ = unpack_pose(from_pose)
@@ -58,57 +64,65 @@ def get_bearing_from_pose(my_pose, from_pose):
     return bearing
 
 
-def get_next_waypoint_idx(pose, waypoints):
-    wp_i = get_closest_waypoint_idx(pose, waypoints)
-    assert wp_i >= 0
+def get_next_waypoint_idx(pose, waypoints, starting_idx):
+    # Get the car yaw, x and y coordinates
     quaternion = (pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w)
     _, _, pose_yaw = tf.transformations.euler_from_quaternion(quaternion)
-    bearing = get_bearing_from_pose(pose, waypoints[wp_i].pose.pose)
-    if abs(bearing-pose_yaw) > math.pi / 4:  # TODO fishy!
-        wp_i = (wp_i + 1) % len(waypoints)
+    pose_x, pose_y, _ = unpack_pose(pose)
+    direction = 1
+    wp_i = starting_idx
+
+    ''' Starting from the waypoint with index starting_idx in waypoints, find the first one with a positive
+    x coordinate in the car reference system '''
+    while True:
+        wp_x, wp_y, _ = unpack_pose(waypoints[wp_i].pose.pose)
+        wp_x_car_ref, _ = universal2car_ref(x=wp_x, y=wp_y, car_x=pose_x, car_y=pose_y, car_yaw=pose_yaw)
+        if wp_x_car_ref >= 0:
+            break
+        wp_i = (wp_i + direction) % len(waypoints)
+        assert wp_i != starting_idx  # Should not get into an infinite loop
+
     return wp_i
 
 
 class WaypointUpdater(object):
     def __init__(self):
         rospy.init_node('waypoint_updater', log_level=rospy.DEBUG)
-        rospy.logdebug('Inside WaypointUpdater.__init__()')
-        rospy.logdebug('Running Python version '+sys.version)
+        # rospy.logdebug('Inside WaypointUpdater.__init__()')
+        # rospy.logdebug('Running Python version '+sys.version)
 
         rospy.Subscriber('/base_waypoints', Lane, self.waypoints_cb)
 
         # TODO: Add a subscriber for /traffic_waypoint and /obstacle_waypoint below
 
-
         self.final_waypoints_pub = rospy.Publisher('final_waypoints', Lane, queue_size=1)
 
         # TODO: Add other member variables you need below
-        self.waypoints= None
-
+        self.waypoints = None
+        # The index in self.waypoints[] of the last waypoint found to be the closest in front of the car
+        self.prev_wp_idx = 0
         self.received_pose_count = 0
         self.lock = threading.Lock()
 
         rospy.spin()
 
     def pose_cb(self, msg):
-        # DONE: Implement
-        # rospy.logdebug("Inside pose_cb()")
+        # start_time = time.time()
         self.lock.acquire();
         current_count = self.received_pose_count
         self.received_pose_count += 1
         self.lock.release();
-        # if current_count % 25 != 0:
-        #    return
 
         rospy.logdebug('Received pose #{}'.format(current_count))
-        rospy.logdebug(msg)
-        pose_i = get_next_waypoint_idx(msg.pose, self.waypoints)
+        # rospy.logdebug(msg)
+        pose_i = get_next_waypoint_idx(msg.pose, self.waypoints, self.prev_wp_idx)
+        self.prev_wp_idx = pose_i
         rospy.logdebug('Next waypoint is #{}'.format(pose_i))
-        next_i = (pose_i+1) % len(self.waypoints)
-        prev_i = (pose_i-1) % len(self.waypoints)
-        dist_next_i = poses_distance(msg.pose, self.waypoints[next_i].pose.pose)
-        dist_prev_i = poses_distance(msg.pose, self.waypoints[prev_i].pose.pose)
-        direction = -1 if dist_next_i < dist_prev_i else 1
+        # next_i = (pose_i+1) % len(self.waypoints)
+        # prev_i = (pose_i-1) % len(self.waypoints)
+        # dist_next_i = poses_distance(msg.pose, self.waypoints[next_i].pose.pose)
+        # dist_prev_i = poses_distance(msg.pose, self.waypoints[prev_i].pose.pose)
+        direction = 1  #-1 if dist_next_i < dist_prev_i else 1
         lane = Lane()
         lane.header.frame_id = '/world'
         lane.header.stamp = rospy.Time(0)
@@ -116,6 +130,8 @@ class WaypointUpdater(object):
             i = (pose_i+count*direction) % len(self.waypoints)
             lane.waypoints.append(self.waypoints[i])
         self.final_waypoints_pub.publish(lane)
+        # total_time = time.time() - start_time
+        # rospy.logdebug('Time spent in pose_cb: {}'.format(total_time))
 
 
     def waypoints_cb(self, waypoints):
