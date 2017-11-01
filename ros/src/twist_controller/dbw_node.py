@@ -6,7 +6,9 @@ from dbw_mkz_msgs.msg import ThrottleCmd, SteeringCmd, BrakeCmd, SteeringReport
 from geometry_msgs.msg import TwistStamped
 import math
 import threading
+import time
 from yaw_controller import YawController
+from pid import PID
 
 from twist_controller import Controller
 
@@ -33,8 +35,18 @@ that we have created in the `__init__` function.
 
 '''
 
+
 def rad2deg(deg):
     return deg/math.pi*180
+
+
+def get_cte(waypoint_x, waypoint_y, car_x, car_y, car_yaw):
+    shift_x = waypoint_x - car_x
+    shift_y = waypoint_y - car_y
+    # x_res = (shift_x * math.cos(-car_yaw) - shift_y * math.sin(-car_yaw))
+    y_res = (shift_x * math.sin(-car_yaw) + shift_y * math.cos(-car_yaw))
+    return y_res
+
 
 class DBWNode(object):
     def __init__(self):
@@ -58,6 +70,10 @@ class DBWNode(object):
         self.dbw_enabled = False  # TODO good for the simulator, but what is the right value for Carla?
         self.dbw_enabled_lock = threading.Lock()
 
+        self.twist_update_interval = 0.
+
+        self.last_twist_cb_time = None  # Only read/write this inside twist_cb(), it is not protected by locks!
+
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
                                          SteeringCmd, queue_size=1)
         self.throttle_pub = rospy.Publisher('/vehicle/throttle_cmd',
@@ -74,6 +90,15 @@ class DBWNode(object):
                                             max_lat_accel=max_lat_accel,
                                             max_steer_angle=max_steer_angle)
 
+        self.throttle_controller = PID(.1, .005, .01, mn=.0, mx=1.)
+        ''' .1, .005, .01 '''
+        self.steering_controller = PID(.292904, .00285759, .125998, mn=-1, mx=1)
+        ''' 
+        pParam = .292904;
+        iParam = .00285759;
+        dParam = .125998;
+        '''
+
         # TODO: Subscribe to all the topics you need to
         rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb)
         rospy.Subscriber('/current_velocity', TwistStamped, self.current_velocity_cb)
@@ -81,19 +106,32 @@ class DBWNode(object):
 
         self.loop()
 
-
     def set_current_velocity(self, linear, angular):
         self.current_velocity_lock.acquire()
         self.current_linear_velocity = linear
         self.current_yaw_velocity = angular
         self.current_velocity_lock.release()
 
+    def get_current_velocity(self):
+        self.current_velocity_lock.acquire()
+        linear = self.current_linear_velocity
+        angular = self.current_yaw_velocity
+        self.current_velocity_lock.release()
+        return linear, angular
 
     def set_dbw_enabled(self, enable):
         self.dbw_enabled_lock.acquire()
+        prev_value = self.dbw_enabled
         self.dbw_enabled = enable
+        if prev_value == False and enable == True:
+            self.throttle_controller.reset()
         self.dbw_enabled_lock.release()
 
+    def get_dbw_enabled(self):
+        self.dbw_enabled_lock.acquire()
+        enabled = self.dbw_enabled
+        self.dbw_enabled_lock.release()
+        return enabled
 
     def loop(self):
         rate = rospy.Rate(50) # 50Hz
@@ -108,7 +146,6 @@ class DBWNode(object):
             # if <dbw is enabled>:
             #   self.publish(throttle, brake, steer)
             rate.sleep()
-
 
     def publish(self, throttle, brake, steer):
         tcmd = ThrottleCmd()
@@ -128,20 +165,54 @@ class DBWNode(object):
         bcmd.pedal_cmd = brake
         self.brake_pub.publish(bcmd)
 
-
     def twist_cb(self, msg):
         # rospy.logdebug('Received twist message:')
         # rospy.logdebug(msg)
         # self.publish(1, 0, -8)
 
+        current_time = time.time()
+
+        if self.last_twist_cb_time is None:
+            self.last_twist_cb_time = current_time
+            return
+
+        delta_t = current_time - self.last_twist_cb_time
+
+        if delta_t < self.twist_update_interval:
+            return
+
+        self.last_twist_cb_time = current_time
+
+        if not self.get_dbw_enabled():
+            return
+
         wanted_velocity = msg.twist.linear.x
         wanted_angular_velocity = msg.twist.angular.z
+        current_linear_v, current_angular_v = self.get_current_velocity()
+
+        '''
         steering = self.yaw_controller.get_steering(linear_velocity=wanted_velocity,
                                                     angular_velocity=wanted_angular_velocity,
                                                     current_velocity=self.current_linear_velocity)
         steering = rad2deg(steering)
-        self.publish(throttle=.5, brake=0., steer=steering)
+        '''
 
+        # linear_v_error= wanted_velocity - current_linear_v
+        linear_v_error = 6.7056 - current_linear_v
+        if linear_v_error > 0:
+            throttle = self.throttle_controller.step(linear_v_error, delta_t)
+        else:
+            throttle = .0
+
+        angular_v_error =  - math.tan(wanted_angular_velocity - current_angular_v) * current_linear_v * delta_t
+        angular_v_error = angular_v_error ** 2 if angular_v_error > 0 else - angular_v_error ** 2
+        steering = self.steering_controller.step(angular_v_error, delta_t)
+        steering*=25.
+
+        log_msg = 'Setting throttle={} and steer={} with linear_v_error={}, angular_v_error={} and delta_t={}'
+        rospy.logdebug(log_msg.format(throttle, steering, linear_v_error, angular_v_error, delta_t))
+
+        self.publish(throttle=throttle, brake=0., steer=steering)
 
     def current_velocity_cb(self, msg):
         # rospy.logdebug('Received current velocity:')
@@ -150,7 +221,6 @@ class DBWNode(object):
         angular = msg.twist.angular.z
         self.set_current_velocity(linear=linear, angular=angular)
         # rospy.logdebug('Set current velocity to linear={} and angular={}'.format(linear, angular))
-
 
     def DBW_enabled_cb(self, msg):
         rospy.logdebug('Received emable DBW')
