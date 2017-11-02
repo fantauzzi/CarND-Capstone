@@ -92,7 +92,7 @@ class DBWNode(object):
 
         self.throttle_controller = PID(.1, .005, .01, mn=.0, mx=1.)
         ''' .1, .005, .01 '''
-        self.steering_controller = PID(.292904, .00285759, .125998, mn=-1, mx=1)
+        # self.steering_controller = PID(.292904, .00285759, .125998, mn=-1, mx=1)
         ''' 
         pParam = .292904;
         iParam = .00285759;
@@ -190,27 +190,26 @@ class DBWNode(object):
         wanted_angular_velocity = msg.twist.angular.z
         current_linear_v, current_angular_v = self.get_current_velocity()
 
-        '''
         steering = self.yaw_controller.get_steering(linear_velocity=wanted_velocity,
                                                     angular_velocity=wanted_angular_velocity,
                                                     current_velocity=self.current_linear_velocity)
-        steering = rad2deg(steering)
-        '''
+        # steering = rad2deg(steering)
 
         # linear_v_error= wanted_velocity - current_linear_v
-        linear_v_error = 6.7056 - current_linear_v
+        linear_v_error = 11.176 - current_linear_v
         if linear_v_error > 0:
             throttle = self.throttle_controller.step(linear_v_error, delta_t)
         else:
             throttle = .0
+            # self.throttle_controller.reset()  # TODO is this really necessary?
 
-        angular_v_error =  - math.tan(wanted_angular_velocity - current_angular_v) * current_linear_v * delta_t
-        angular_v_error = angular_v_error ** 2 if angular_v_error > 0 else - angular_v_error ** 2
-        steering = self.steering_controller.step(angular_v_error, delta_t)
-        steering*=25.
+        # angular_v_error =  - math.tan(wanted_angular_velocity - current_angular_v) * current_linear_v * delta_t
+        # angular_v_error = angular_v_error ** 2 if angular_v_error> 0 else - angular_v_error ** 2
+        # steering = self.steering_controller.step(angular_v_error, delta_t)
+        # steering*=25.
 
-        log_msg = 'Setting throttle={} and steer={} with linear_v_error={}, angular_v_error={} and delta_t={}'
-        rospy.logdebug(log_msg.format(throttle, steering, linear_v_error, angular_v_error, delta_t))
+        log_msg = 'Setting throttle={} and steer={} with linear_v_error={} and delta_t={}'
+        rospy.logdebug(log_msg.format(throttle, steering, linear_v_error, delta_t))
 
         self.publish(throttle=throttle, brake=0., steer=steering)
 

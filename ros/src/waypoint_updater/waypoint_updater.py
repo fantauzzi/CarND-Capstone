@@ -103,26 +103,31 @@ class WaypointUpdater(object):
         self.prev_wp_idx = 0
         self.received_pose_count = 0
         self.lock = threading.Lock()
+        self.previous_pose_cb_time = None
 
         rospy.spin()
 
     def pose_cb(self, msg):
         # start_time = time.time()
+        now = time.time()
+        delta_t = 0 if self.previous_pose_cb_time is None else now-self.previous_pose_cb_time
+
+        if 0 < delta_t < 0.01:  # TODO decide how to go about this, loop or not?
+            return
+        self.previous_pose_cb_time = now
+
         self.lock.acquire();
         current_count = self.received_pose_count
         self.received_pose_count += 1
         self.lock.release();
 
-        rospy.logdebug('Received pose #{}'.format(current_count))
+        rospy.logdebug('Processing pose #{}'.format(current_count))
+        rospy.logdebug('delta_t from previous processing is {}'.format(delta_t))
         # rospy.logdebug(msg)
         pose_i = get_next_waypoint_idx(msg.pose, self.waypoints, self.prev_wp_idx)
         self.prev_wp_idx = pose_i
         rospy.logdebug('Next waypoint is #{}'.format(pose_i))
-        # next_i = (pose_i+1) % len(self.waypoints)
-        # prev_i = (pose_i-1) % len(self.waypoints)
-        # dist_next_i = poses_distance(msg.pose, self.waypoints[next_i].pose.pose)
-        # dist_prev_i = poses_distance(msg.pose, self.waypoints[prev_i].pose.pose)
-        direction = 1  #-1 if dist_next_i < dist_prev_i else 1
+        direction = 1
         lane = Lane()
         lane.header.frame_id = '/world'
         lane.header.stamp = rospy.Time(0)
