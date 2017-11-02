@@ -70,7 +70,7 @@ class Chart(object):
         return updated
 
     def loop(self):
-        rate = rospy.Rate(10)  # The chart refresh rate, no need for it to be stupid high
+        rate = rospy.Rate(5)  # The chart refresh rate, no need for it to be stupid high
 
         # Wait to receive the track waypoints, can't chart anything before that
         waypoints=[]

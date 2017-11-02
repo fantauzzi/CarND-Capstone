@@ -6,6 +6,7 @@ import time
 import copy
 import rospy
 import tf
+from collections import deque
 
 from std_msgs.msg import Bool
 from dbw_mkz_msgs.msg import ThrottleCmd, SteeringCmd, BrakeCmd, SteeringReport
@@ -122,9 +123,9 @@ class DBWNode(object):
         self.final_waypoints_lock = threading.Lock()
 
         self.plot_data_lock = threading.Lock()
-        self.plot_cte = .0
-        self.plot_velocity_err = .0
-        self.plot_yaw_err = .0
+        self.plot_cte = []
+        self.plot_velocity_err = []
+        self.plot_yaw_err = []
         self.plot_updated = False
 
         # TODO: Create `TwistController` object
@@ -136,7 +137,7 @@ class DBWNode(object):
                                             max_lat_accel=max_lat_accel,
                                             max_steer_angle=max_steer_angle)
 
-        self.throttle_controller = PID(.4, .0, .0, mn=-1., mx = accel_limit)
+        self.throttle_controller = PID(.3, .005, .01, mn=-1., mx = accel_limit)
         ''' .1, .005, .01 '''
         # self.steering_controller = PID(.292904, .00285759, .125998, mn=-1, mx=1)
         ''' 
@@ -156,18 +157,24 @@ class DBWNode(object):
 
     def set_plot_data(self, cte, velocity, yaw, ):
         self.plot_data_lock.acquire()
-        self.plot_cte = cte
-        self.plot_velocity_err = velocity
-        self.plot_yaw_err = yaw
+        self.plot_cte.append(cte)
+        self.plot_velocity_err.append(velocity)
+        self.plot_yaw_err.append(yaw)
         self.plot_updated = True
         self.plot_data_lock.release()
 
     def get_plot_data(self):
         self.plot_data_lock.acquire()
-        cte = self.plot_cte if self.plot_updated else None
-        velocity = self.plot_velocity_err if self.plot_updated else None
-        yaw = self.plot_yaw_err if self.plot_updated else None
-        self.plot_updated = False
+        if self.plot_updated:
+            cte = self.plot_cte
+            velocity = self.plot_velocity_err
+            yaw = self.plot_yaw_err
+            self.plot_cte= []
+            self.plot_velocity_err = []
+            self.plot_yaw_err = []
+            self.plot_updated = False
+        else:
+            cte, velocity, yaw = None, None, None
         self.plot_data_lock.release()
         return cte, velocity, yaw
 
@@ -202,22 +209,24 @@ class DBWNode(object):
         plt.ion()
         axes = [None]*3
         fig, (axes[0], axes[1], axes[2]) = plt.subplots(nrows=3)
-        n_points = 720
+        n_points = 1000
         x_plot = list(range(n_points))
-        y_plots = []
+        y_plots = [None]*3
         lines = [None]*3
         for plot_i in xrange(3):
-            y_plots.append([0]*n_points)
+            y_plots[plot_i] = deque([0]*n_points)
             lines[plot_i], = axes[plot_i].plot(x_plot, y_plots[plot_i])
+            axes[plot_i].grid(b=True)
         plt.show()
-        rate = rospy.Rate(10)
+        rate = rospy.Rate(2)
         while not rospy.is_shutdown():
             y1, y2, y3 = self.get_plot_data()
             if y1 is not None:
                 y_to_plot = [y1, y2, y3]
                 for plot_i in xrange(3):
-                    del y_plots[plot_i][0]
-                    y_plots[plot_i].append(y_to_plot[plot_i])
+                    for _ in xrange(len(y_to_plot[plot_i])):
+                        y_plots[plot_i].popleft()
+                    y_plots[plot_i].extend(y_to_plot[plot_i])
                     lines[plot_i].set_ydata(y_plots[plot_i])
                     axes[plot_i].relim()
                     axes[plot_i].autoscale_view()
@@ -313,10 +322,13 @@ class DBWNode(object):
         assert 0 <= brake <= self.max_decel_torque
         self.publish(throttle=throttle, brake=brake, steer=steering)
 
-        self.set_plot_data(cte, linear_v_error, 0)
+        processing_time = time.time()-current_time
+
+        angular_vel_error = wanted_angular_velocity - current_angular_v
+        self.set_plot_data(cte, linear_v_error, angular_vel_error)
 
         log_msg = 'throttle={:.4f} brake={:.4f} steer={:.4f} linear_v_error={:.4f} cte={:.4f} delta_t={:.4f} processing_time={:.4f}'
-        rospy.logdebug(log_msg.format(throttle, brake, steering, linear_v_error, cte, delta_t, time.time()-current_time))
+        rospy.logdebug(log_msg.format(throttle, brake, steering, linear_v_error, cte, delta_t, processing_time))
 
     def current_velocity_cb(self, msg):
         # rospy.logdebug('Received current velocity:')
