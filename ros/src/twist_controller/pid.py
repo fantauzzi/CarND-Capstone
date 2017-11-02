@@ -24,7 +24,6 @@ class PID(object):
         derivative = (error - self.last_error) / sample_time;
 
         y = self.kp * error + self.ki * self.int_val + self.kd * derivative;
-        print 'Proposed y={}'.format(y)
         val = max(self.min, min(y, self.max))
 
         """
