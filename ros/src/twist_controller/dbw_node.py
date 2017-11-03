@@ -16,7 +16,7 @@ from pid import PID
 from twist_controller import GAS_DENSITY
 from geometry_msgs.msg import TwistStamped, PoseStamped
 from styx_msgs.msg import Lane
-from lowpass import LowPassFilter
+from lowpass import LowPassFilter, SimpleLowPassFilter
 
 from matplotlib import pyplot as plt
 
@@ -44,8 +44,11 @@ that we have created in the `__init__` function.
 '''
 
 
-def rad2deg(deg):
-    return deg/math.pi*180
+def rad2deg(rad):
+    return rad/math.pi*180
+
+def deg2rad(deg):
+    return deg/180.*math.pi
 
 
 def cte_from_waypoints(car_x, car_y, car_yaw, waypoints):
@@ -112,14 +115,17 @@ class DBWNode(object):
         self.final_waypoints = []
         self.final_waypoints_lock = threading.Lock()
 
-        self.lowpass_filter = LowPassFilter(1, 1) # fifty-fifty
+        self.throttle_filter = LowPassFilter(1, 1) # fifty-fifty
+        self.steering_filter = SimpleLowPassFilter(.25)
+
 
         self.total_time =.0
         self.count =.0
 
         self.data_out_file = open('charting_data.txt', 'w')
         assert self.data_out_file is not None
-        self.data_out_file.write('Iteration throttle brake steer linear_v_error angular_v_error cte delta_t processing_time avg_proc_time\n')
+        # Write header for file
+        self.data_out_file.write('Iteration wanted_velocity throttle brake steer linear_v_error angular_v_error cte delta_t processing_time avg_proc_time\n')
 
         # TODO: Create `TwistController` object
         # self.controller = TwistController(<Arguments you wish to provide>)
@@ -233,14 +239,16 @@ class DBWNode(object):
         current_linear_v, current_angular_v = self.get_current_velocity()
         steering = self.yaw_controller.get_steering(linear_velocity=wanted_velocity,
                                                     angular_velocity=wanted_angular_velocity,
-                                                    current_velocity=self.current_linear_velocity)
+                                                    current_velocity=current_linear_v)
+        # steering = rad2deg(steering)
+        steering = self.steering_filter.filt(steering)
         linear_v_error= wanted_velocity - current_linear_v
         # linear_v_error = 11.1111 - current_linear_v
         throttle = self.throttle_controller.step(linear_v_error, delta_t)
-        throttle = self.lowpass_filter.filt(throttle)
+        throttle = self.throttle_filter.filt(throttle)
 
         if throttle >= 0:
-            brake =.0
+            brake = .0
         else:
             brake = self.max_decel_torque * abs(throttle)
             throttle = 0
@@ -265,8 +273,8 @@ class DBWNode(object):
 
         avg_processing_time = self.total_time/self.count
 
-        data_msg = '{} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}\n'
-        self.data_out_file.write(data_msg.format(self.count, throttle, brake, steering, linear_v_error, angular_vel_error, cte, delta_t, processing_time, avg_processing_time ))
+        data_msg = '{} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f} {:.4f}\n'
+        self.data_out_file.write(data_msg.format(self.count, wanted_velocity, throttle, brake, steering, linear_v_error, angular_vel_error, cte, delta_t, processing_time, avg_processing_time ))
 
         log_msg = '#{} wanted_velocity={:.4f} throttle={:.4f} brake={:.4f} steer={:.4f} linear_v_error={:.4f} cte={:.4f} delta_t={:.4f} processing_time={:.4f} avg proc time={:.4f}'
         rospy.logdebug(log_msg.format(self.count, wanted_velocity, throttle, brake, steering, linear_v_error, cte, delta_t, processing_time, avg_processing_time ))

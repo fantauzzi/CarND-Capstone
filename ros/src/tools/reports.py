@@ -2,11 +2,12 @@ import csv
 from matplotlib import pyplot as plt
 import numpy as np
 
-# 0)Iteration 1)throttle 2)brake 3)steer 4)linear_v_error 5)angular_v_error 6)cte 7)delta_t 8)processing_time 9)avg_proc_time
+# 0)Iteration 1)wanted_velocity 2)throttle 3)brake 4)steer 5)linear_v_error 6)angular_v_error 7)cte 8)delta_t 9)processing_time 10)avg_proc_time
 
 def main():
-    do = (3, 4, 5, 6)
-    max_entries = 1800
+    do = (1, 4, 5, 6, 7, 9)
+    # do = (4, 6)
+    max_entries = 20000
     count = 0
     with open('../../../../../.ros/charting_data.txt', 'r') as csvfile:
         file_reader = csv.reader(csvfile, delimiter=' ')
