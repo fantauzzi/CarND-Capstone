@@ -136,9 +136,10 @@ class DBWNode(object):
                                             max_lat_accel=max_lat_accel,
                                             max_steer_angle=max_steer_angle)
 
-        self.throttle_controller = PID(.3, .0, .16, mn=-1., mx = accel_limit)
-        ''' .1, .005, .01 '''
-
+        # self.throttle_controller = PID(.3, .0, .16, mn=-1., mx = accel_limit)  # Set 1
+        # self.throttle_controller = PID(.3, .8, .16, mn=-1., mx=accel_limit)  # Set 2
+        # self.throttle_controller = PID(.2, .1, .16, mn=-1., mx=accel_limit)  # Set 3
+        self.throttle_controller = PID(.2, .05, .8, mn=-1., mx=accel_limit)  # Set 4 <=== best so far
 
         # TODO: Subscribe to all the topics you need to
         rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb)
@@ -245,6 +246,8 @@ class DBWNode(object):
         linear_v_error= wanted_velocity - current_linear_v
         # linear_v_error = 11.1111 - current_linear_v
         throttle = self.throttle_controller.step(linear_v_error, delta_t)
+        if current_linear_v >= wanted_velocity and throttle > 0:
+            throttle = 0
         throttle = self.throttle_filter.filt(throttle)
 
         if throttle >= 0:
@@ -253,8 +256,6 @@ class DBWNode(object):
             brake = self.max_decel_torque * abs(throttle)
             throttle = 0
 
-        if current_linear_v >= wanted_velocity and throttle > 0:
-            throttle = 0
 
         assert 0 <= throttle <= 1
         assert 0 <= brake <= self.max_decel_torque
