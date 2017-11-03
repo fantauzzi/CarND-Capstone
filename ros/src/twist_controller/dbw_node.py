@@ -7,6 +7,7 @@ import copy
 import rospy
 import tf
 from collections import deque
+import numpy as np
 
 from std_msgs.msg import Bool
 from dbw_mkz_msgs.msg import ThrottleCmd, SteeringCmd, BrakeCmd, SteeringReport
@@ -15,7 +16,8 @@ from pid import PID
 from twist_controller import GAS_DENSITY
 from geometry_msgs.msg import TwistStamped, PoseStamped
 from styx_msgs.msg import Lane
-import numpy as np
+from lowpass import LowPassFilter
+
 from matplotlib import pyplot as plt
 
 '''
@@ -103,8 +105,6 @@ class DBWNode(object):
         self.dbw_enabled = False  # TODO good for the simulator, but what is the right value for Carla?
         self.dbw_enabled_lock = threading.Lock()
 
-        self.twist_update_interval = 0.
-
         self.last_twist_cb_time = None  # Only read/write this inside twist_cb(), it is not protected by locks!
 
         self.steer_pub = rospy.Publisher('/vehicle/steering_cmd',
@@ -128,6 +128,11 @@ class DBWNode(object):
         self.plot_yaw_err = []
         self.plot_updated = False
 
+        self.lowpass_filter = LowPassFilter(1, 1) # fifty-fifty
+
+        self.total_time =.0
+        self.count =.0
+
         # TODO: Create `TwistController` object
         # self.controller = TwistController(<Arguments you wish to provide>)
 
@@ -137,14 +142,9 @@ class DBWNode(object):
                                             max_lat_accel=max_lat_accel,
                                             max_steer_angle=max_steer_angle)
 
-        self.throttle_controller = PID(.3, .005, .01, mn=-1., mx = accel_limit)
+        self.throttle_controller = PID(.3, .0, .16, mn=-1., mx = accel_limit)
         ''' .1, .005, .01 '''
-        # self.steering_controller = PID(.292904, .00285759, .125998, mn=-1, mx=1)
-        ''' 
-        pParam = .292904;
-        iParam = .00285759;
-        dParam = .125998;
-        '''
+
 
         # TODO: Subscribe to all the topics you need to
         rospy.Subscriber('/twist_cmd', TwistStamped, self.twist_cb)
@@ -285,10 +285,11 @@ class DBWNode(object):
             self.last_twist_cb_time = current_time
             return
 
-        delta_t = current_time - self.last_twist_cb_time
-
-        if delta_t < self.twist_update_interval:
-            return
+        self.total_time += current_time - self.last_twist_cb_time
+        self.count += 1.
+        rospy.logdebug('Average delta_t={}'.format(self.total_time/self.count))
+        # delta_t = current_time - self.last_twist_cb_time
+        delta_t = .0333333
 
         self.last_twist_cb_time = current_time
 
@@ -299,30 +300,38 @@ class DBWNode(object):
         wanted_angular_velocity = msg.twist.angular.z
         current_linear_v, current_angular_v = self.get_current_velocity()
 
-        path = self.get_final_waypoints(max_n_points=8)
-        pose_x, pose_y, pose_yaw = self.get_pose()
-        if len(path) > 0 and pose_x is not None:
-            cte = cte_from_waypoints(pose_x, pose_y, pose_yaw, path)
-        else:
-            cte = 0
-
         steering = self.yaw_controller.get_steering(linear_velocity=wanted_velocity,
                                                     angular_velocity=wanted_angular_velocity,
                                                     current_velocity=self.current_linear_velocity)
         # linear_v_error= wanted_velocity - current_linear_v
         linear_v_error = 11.1111 - current_linear_v
         throttle = self.throttle_controller.step(linear_v_error, delta_t)
+        throttle = self.lowpass_filter.filt(throttle)
+
         if throttle >= 0:
             brake =.0
         else:
             brake = self.max_decel_torque * abs(throttle)
             throttle = 0
 
+        if current_linear_v >= wanted_velocity and throttle > 0:
+            throttle = 0
+
+        if throttle <0 or throttle > 1:
+            piccio=1
+            pass
         assert 0 <= throttle <= 1
         assert 0 <= brake <= self.max_decel_torque
         self.publish(throttle=throttle, brake=brake, steer=steering)
 
         processing_time = time.time()-current_time
+
+        path = self.get_final_waypoints(max_n_points=8)
+        pose_x, pose_y, pose_yaw = self.get_pose()
+        if len(path) > 0 and pose_x is not None:
+            cte = cte_from_waypoints(pose_x, pose_y, pose_yaw, path)
+        else:
+            cte = 0
 
         angular_vel_error = wanted_angular_velocity - current_angular_v
         self.set_plot_data(cte, linear_v_error, angular_vel_error)
@@ -348,19 +357,13 @@ if __name__ == '__main__':
     DBWNode()
 
 """
--> rosmsg info geometry_msgs/TwistStamped
-std_msgs/Header header
-  uint32 seq
-  time stamp
-  string frame_id
-geometry_msgs/Twist twist
-  geometry_msgs/Vector3 linear
-    float64 x
-    float64 y
-    float64 z
-  geometry_msgs/Vector3 angular
-    float64 x
-    float64 y
-    float64 z
+TODO
+====
+
+- Capire come funziona il torque, come si calcola, il suo range, chiedere aiuto
+- verificare frequenza eventi in tutta la catena: perche' nel DBW ricevo a 30 Hz?
+- servono veramente le deep copy?
+- controlla il time-stamp degli eventi in arrivo a twist_cb()
+- considera di fare smoothing anche (solo?) della sterzata
 
 """
