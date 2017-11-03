@@ -152,5 +152,4 @@ if __name__ == '__main__':
     try:
         Chart()
     except rospy.ROSInterruptException:
-        rospy.logerr('Could not start waypoint updater node.')
-
+        rospy.logerr('Could not start chart node.')

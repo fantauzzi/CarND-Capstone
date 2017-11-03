@@ -102,28 +102,22 @@ class WaypointUpdater(object):
         # The index in self.waypoints[] of the last waypoint found to be the closest in front of the car
         self.prev_wp_idx = 0
         self.received_pose_count = 0
-        self.lock = threading.Lock()
+        # self.lock = threading.Lock()
         self.previous_pose_cb_time = None
+
+        self.total_time = .0
 
         rospy.spin()
 
-    def pose_cb(self, msg):
-        # start_time = time.time()
+    def pose_cb(self, msg):  # This is being called at 50 Hz
         now = time.time()
         delta_t = 0 if self.previous_pose_cb_time is None else now-self.previous_pose_cb_time
-
-        if 0 < delta_t < 0.01:  # TODO decide how to go about this, loop or not?
-            return
+        self.total_time += delta_t
         self.previous_pose_cb_time = now
+        self.received_pose_count += 1 # TODO protect with mutex!
 
-        self.lock.acquire();
-        current_count = self.received_pose_count
-        self.received_pose_count += 1
-        self.lock.release();
-
-        rospy.logdebug('Processing pose #{}'.format(current_count))
-        rospy.logdebug('delta_t from previous processing is {}'.format(delta_t))
-        # rospy.logdebug(msg)
+        rospy.logdebug('Processing pose #{}'.format(self.received_pose_count))
+        rospy.logdebug('delta_t from previous processing is {} with average {}'.format(delta_t, self.total_time/self.received_pose_count))
         pose_i = get_next_waypoint_idx(msg.pose, self.waypoints, self.prev_wp_idx)
         self.prev_wp_idx = pose_i
         rospy.logdebug('Next waypoint is #{}'.format(pose_i))
@@ -140,11 +134,9 @@ class WaypointUpdater(object):
 
 
     def waypoints_cb(self, waypoints):
-        # DONE: Implement
         assert self.waypoints is None
         self.waypoints= waypoints.waypoints
         rospy.logdebug('Received {} waypoints:'.format(len(waypoints.waypoints)))
-        # rospy.logdebug(waypoints)
         rospy.Subscriber('/current_pose', PoseStamped, self.pose_cb)
 
 
