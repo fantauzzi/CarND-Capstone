@@ -127,7 +127,9 @@ class WaypointUpdater(object):
         lane.header.stamp = rospy.Time(0)
         for count in xrange(LOOKAHEAD_WPS):
             i = (pose_i+count*direction) % len(self.waypoints)
-            lane.waypoints.append(self.waypoints[i])
+            wp =self.waypoints[i]
+            wp.twist.twist.linear.x = 9.
+            lane.waypoints.append(wp)
         self.final_waypoints_pub.publish(lane)
         # total_time = time.time() - start_time
         # rospy.logdebug('Time spent in pose_cb: {}'.format(total_time))

@@ -3,8 +3,6 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/CarND-Capstone.iml" filepath="$PROJECT_DIR$/.idea/CarND-Capstone.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../CarND-Capstone-develop/.idea/CarND-Capstone-develop.iml" filepath="$PROJECT_DIR$/../CarND-Capstone-develop/.idea/CarND-Capstone-develop.iml" />
-      <module fileurl="file://$PROJECT_DIR$/../CarND-PID-Control-Project/.idea/CarND-PID-Control-Project.iml" filepath="$PROJECT_DIR$/../CarND-PID-Control-Project/.idea/CarND-PID-Control-Project.iml" />
     </modules>
   </component>
 </project>

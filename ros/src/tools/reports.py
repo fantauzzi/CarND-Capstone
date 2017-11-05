@@ -5,10 +5,10 @@ import numpy as np
 # 0)Iteration 1)wanted_velocity 2)throttle 3)brake 4)steer 5)linear_v_error 6)angular_v_error 7)cte 8)delta_t 9)processing_time 10)avg_proc_time
 
 def main():
-    do = (1, 2, 3, 4, 5, 6, 7, 9)
+    do = (1, 2, 5, 7, 3)
     # do = (4, 6)
-    max_entries = 17500
-    skip_entries = 600
+    max_entries = 200000
+    skip_entries = 0
 
     count = 0
     with open('../../../../../.ros/charting_data.txt', 'r') as csvfile:

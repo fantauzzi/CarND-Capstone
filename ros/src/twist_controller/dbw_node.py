@@ -298,13 +298,9 @@ if __name__ == '__main__':
 TODO
 ====
 
-- Capire come funziona il torque, come si calcola, il suo range, chiedere aiuto
 - brake_deadband ?
-- verificare frequenza eventi in tutta la catena: perche' nel DBW ricevo a 30 Hz?
 - servono veramente le deep copy?
 - controlla il time-stamp degli eventi in arrivo a twist_cb()
-- considera di fare smoothing anche (solo?) della sterzata
-- aggiungere il cte al costo del controller per il throttle?
-- spostare tutti i grafici nello stesso nodo
+- aggiunta calcolo metriche a reports.py
 
 """
